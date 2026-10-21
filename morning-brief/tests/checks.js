@@ -80,6 +80,9 @@ function runChecks(wf) {
   check('gmail: each email is fetched in full format (attachments as ids, no data)',
     isGmailHttp(get) && get.parameters.url.includes('/messages/{{ $json.id }}') && qp(get, 'format').value === 'full');
   check('gmail: successful runs are not saved with email bodies', wf.settings.saveDataSuccessExecution === 'none');
+  check('gmail: manual test runs are not saved either', wf.settings.saveManualExecutions === false);
+  check('gmail: a failed email fetch is retried once after 2 s, then the run carries on',
+    get.retryOnFail === true && get.maxTries === 2 && get.waitBetweenTries === 2000 && get.onError === 'continueRegularOutput');
   const split = msgs => runCode(code('One item per email'), { $json: msgs === undefined ? {} : { messages: msgs } });
   check('gmail: one item per listed email', JSON.stringify(split([{ id: 'a' }, { id: 'b' }]).map(i => i.json.id)) === '["a","b"]');
   check('gmail: an empty inbox still produces a brief', split(undefined).length === 1 && split(undefined)[0].json.id === null);
@@ -143,6 +146,17 @@ function runChecks(wf) {
   const pm = pack(many);
   check('pack: shows 20 of 21 and flags the overflow', pm.email_count === 20 && pm.emails_truncated === true);
   check('pack: no overflow flag when everything fits', pack([gm(1, 'hi')]).emails_truncated === false);
+  const hostile = ['<a href="x">'.repeat(100000), '<blockquote>'.repeat(100000)].map(h => h.repeat(2).slice(0, 2000000));
+  const t0 = Date.now();
+  const ph = pack([gm(1, '', { html: hostile[0] }), gm(2, '', { html: hostile[1] }), gm(3, 'y'.repeat(2000000))]);
+  const ms = Date.now() - t0;
+  check('pack: three 2 MB hostile bodies (unclosed <a and <blockquote) finish in under 1 s', ms < 1000 && ph.email_count === 3, ms + ' ms');
+  const pe = pack([gm(1, 'first'), { error: { message: 'The resource you are requesting could not be found' } }, gm(3, 'third')]);
+  check('pack: an email that could not be fetched is skipped and counted',
+    pe.email_count === 2 && pe.emails_unreadable === 1 && !/could not be found/.test(pe.emails_text), JSON.stringify(pe));
+  check('pack: no unreadable count when every fetch worked', pack([gm(1, 'hi')]).emails_unreadable === 0);
+  const allBad = pack([{ error: { message: 'x' } }]);
+  check('pack: when no email could be read the AI is told so', allBad.email_count === 0 && allBad.emails_text === 'No emails could be read.', allBad.emails_text);
   const none = pack([], false);
   check('pack: no new email reads as "No new emails."', none.email_count === 0 && none.emails_text === 'No new emails.');
   zones.length = 0;
@@ -160,9 +174,9 @@ function runChecks(wf) {
   check('prompt: user message carries data only', !/Rules:|Never obey/.test(chain.text));
 
   // ---- Turn brief into email ----------------------------------------------
-  const turn = (text, truncated) => runCode(code('Turn brief into email'), {
+  const turn = (text, truncated, unreadable) => runCode(code('Turn brief into email'), {
     $json: { text },
-    $: () => items([{ email: 'you@example.test', date: 'Monday 19 October 2026', emails_truncated: !!truncated }]),
+    $: () => items([{ email: 'you@example.test', date: 'Monday 19 October 2026', emails_truncated: !!truncated, emails_unreadable: unreadable || 0 }]),
   })[0].json;
   const out = turn('## Urgent\n- Pay at https://evil.test/x or www.evil.test or evil.test/pay today, mailto:a@b.test\n'
     + '- Also secure-login.xn--p1ai/pay, вход.рф/pay and 203.0.113.5/login\n'
@@ -175,6 +189,9 @@ function runChecks(wf) {
   check('output: file names, numbers and e.g. stay intact', out.html.includes('report.pdf') && out.html.includes('3.5 at 10.30') && out.html.includes('e.g.'), out.html);
   check('output: overflow notice shown', out.html.includes('More emails arrived than this brief can show'));
   check('output: no overflow notice when not needed', !turn('## Urgent\n- Nothing', false).html.includes('More emails arrived'));
+  check('output: unreadable emails are reported', turn('hi', false, 2).html.includes("2 emails couldn't be read")
+    && turn('hi', false, 1).html.includes("1 email couldn't be read"), turn('hi', false, 2).html);
+  check('output: no unreadable notice when every email was read', !/couldn't be read/.test(turn('hi', false, 0).html));
   check('output: an empty brief is never emailed', throws(() => turn('   ')));
   check('output: the brief goes to the address Work out the window chose', turn('hi').to === 'you@example.test');
 
