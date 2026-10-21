@@ -1,6 +1,6 @@
 # AI morning brief
 
-Every weekday morning, this n8n workflow reads the last day of your Gmail and today's Google Calendar. Claude writes a one-page brief, and n8n emails it to you before you start work.
+Every weekday morning, this n8n workflow reads your Gmail since the last brief (Friday onwards on a Monday) and today's Google Calendar. Claude writes a one-page brief, and n8n emails it to you before you start work.
 
 Full guide: https://5warm.ai/guides/ai-morning-brief/
 
@@ -29,13 +29,24 @@ Full guide: https://5warm.ai/guides/ai-morning-brief/
 
 ## How it works
 
-`Every weekday morning` → `Your settings` → `Recent emails` (Gmail, last day, inbox only) → `Today's calendar` → `Pack emails and meetings` (Code) → `Write the brief` (Claude) → `Turn brief into email` (Code) → `Email me the brief` (Gmail).
+`Every weekday morning` → `Your settings` → `Recent emails` (Gmail inbox since the last brief, your own sent mail skipped, up to 20 emails) → `Today's calendar` → `Pack emails and meetings` (Code) → `Write the brief` (Claude) → `Turn brief into email` (Code) → `Email me the brief` (Gmail).
 
-To change what the brief covers, edit the prompt in **Write the brief**. To read more or fewer emails, change the limit or the search in **Recent emails**.
+To change what the brief covers, edit the prompt in **Write the brief**. To read more or fewer emails, change the limit or the search in **Recent emails**. The AI sees the first 1,500 characters of each email's new text (quoted history is dropped); change `BODY_CAP` in **Pack emails and meetings** to adjust it. Twenty emails at that length is about 8,000 tokens a day.
 
 ## Your data
 
-The workflow reads your email and calendar, and sends them to Anthropic's API to write the brief. Nothing goes anywhere else. n8n keeps each run's data in its execution log unless you turn that off in the workflow settings.
+The workflow reads your email and calendar and sends them to the AI provider you connect: Anthropic, or OpenRouter, which passes them on to the model provider you pick. Nothing is sent to Swarm. n8n keeps each run's data in its execution log unless you turn that off in the workflow settings.
+
+## Email text is treated as data
+
+Anyone can email you, so the workflow treats every email and invite as untrusted:
+
+- Each one goes to the AI inside `<untrusted_email>` / `<untrusted_event>` tags, and the instructions sit in a separate system message that says text inside the tags must never be obeyed.
+- Links are replaced with `[link: domain]` before the AI sees them, and any link left in the brief is removed before it's emailed.
+- Each draft reply may only use the email it answers, so one email can't pull codes or details out of another.
+- An email that gives the AI instructions, or pushes an urgent payment or login, is listed under **Urgent** as suspicious, with no draft reply.
+
+Still read each draft before you send it.
 
 ## Want this done for you?
 
