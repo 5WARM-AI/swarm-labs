@@ -61,6 +61,10 @@ Anyone can email you, so the workflow treats every email and invite as untrusted
 
 Still read each draft before you send it.
 
+## Known limits
+
+- If an email can't be read, the brief tells you how many but skips it, so check your inbox for it.
+
 ## Tests
 
 `node tests/run.js` runs the workflow's own Code nodes against test emails: fake and look-alike closing tags, braces, every kind of link (including `user@` links, `xn--` and non-Latin domains and IP addresses), file names, HTML-only and attachment emails, timed meetings, the Monday and Tuesday windows, the 20-email cap, an empty inbox, very large hostile HTML emails, long style blocks, over-long headers, emails Gmail couldn't return and the recipient rules. It also checks that the HTML clean-up never gets more than 20,000 characters, the Gmail calls, that a failed fetch doesn't stop the run, that successful and manual runs aren't saved, and that every credential is a placeholder. It exits with an error if any check fails.

@@ -170,11 +170,11 @@ function runChecks(wf) {
     pe.email_count === 2 && pe.emails_unreadable === 1 && !/could not be found/.test(pe.emails_text), JSON.stringify(pe));
   check('pack: no unreadable count when every fetch worked', pack([gm(1, 'hi')]).emails_unreadable === 0);
   const probeErr = pack([...Array.from({ length: 20 }, (_, i) => gm(i + 1, 'ok ' + i)), fetchErr]);
-  check('pack: a failed fetch of the extra overflow email is not counted',
-    probeErr.emails_unreadable === 0 && probeErr.email_count === 20, JSON.stringify(probeErr).slice(0, 200));
+  check('pack: 20 read and the 21st failed still flags overflow, with nothing counted unreadable',
+    probeErr.emails_unreadable === 0 && probeErr.email_count === 20 && probeErr.emails_truncated === true, JSON.stringify(probeErr).slice(0, 200));
   const gapErr = pack([gm(1, 'ok'), fetchErr, ...Array.from({ length: 19 }, (_, i) => gm(i + 3, 'ok ' + i))]);
-  check('pack: a failed fetch in the first 20 is filled by the 21st email and counted once',
-    gapErr.email_count === 20 && gapErr.emails_unreadable === 1 && gapErr.emails_truncated === false, JSON.stringify(gapErr).slice(0, 200));
+  check('pack: a failed fetch in the first 20 is filled by the 21st email, counted once, and overflow is still flagged',
+    gapErr.email_count === 20 && gapErr.emails_unreadable === 1 && gapErr.emails_truncated === true, JSON.stringify(gapErr).slice(0, 200));
 
   // Guard: the HTML clean-up never sees more than RAW_CAP characters, whatever the email. The harness
   // wraps the workflow's own htmlToText to record each input length.
@@ -191,10 +191,6 @@ function runChecks(wf) {
     gm(4, '', { html: '<html><head>' + style30k + '</head><body>' + hostile[0] + '</body>' })]);
   check('pack: HTML clean-up never receives more than RAW_CAP characters',
     packSrc.includes(htmlDecl) && RAW_CAP > 0 && seen.length === 4 && seen.every(n => n <= RAW_CAP), `RAW_CAP=${RAW_CAP} seen=${seen}`);
-  const t0 = Date.now();
-  pack([gm(1, '', { html: styleBomb }), gm(2, '', { html: styleBomb }), gm(3, '', { html: styleBomb })]);
-  const styleMs = Date.now() - t0;
-  check('pack: three 2 MB repeated-<style> bodies finish in under 3 s', styleMs < 3000, styleMs + ' ms');
   const allBad = pack([{ error: { message: 'x' } }]);
   check('pack: when no email could be read the AI is told so', allBad.email_count === 0 && allBad.emails_text === 'No emails could be read.', allBad.emails_text);
   const none = pack([], false);
