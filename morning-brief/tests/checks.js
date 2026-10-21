@@ -171,7 +171,30 @@ function runChecks(wf) {
   check('pack: no unreadable count when every fetch worked', pack([gm(1, 'hi')]).emails_unreadable === 0);
   const probeErr = pack([...Array.from({ length: 20 }, (_, i) => gm(i + 1, 'ok ' + i)), fetchErr]);
   check('pack: a failed fetch of the extra overflow email is not counted',
-    probeErr.emails_unreadable === 0 && probeErr.email_count === 20 && probeErr.emails_truncated === true, JSON.stringify(probeErr).slice(0, 200));
+    probeErr.emails_unreadable === 0 && probeErr.email_count === 20, JSON.stringify(probeErr).slice(0, 200));
+  const gapErr = pack([gm(1, 'ok'), fetchErr, ...Array.from({ length: 19 }, (_, i) => gm(i + 3, 'ok ' + i))]);
+  check('pack: a failed fetch in the first 20 is filled by the 21st email and counted once',
+    gapErr.email_count === 20 && gapErr.emails_unreadable === 1 && gapErr.emails_truncated === false, JSON.stringify(gapErr).slice(0, 200));
+
+  // Guard: the HTML clean-up never sees more than RAW_CAP characters, whatever the email. The harness
+  // wraps the workflow's own htmlToText to record each input length.
+  const packSrc = code('Pack emails and meetings');
+  const RAW_CAP = Number((packSrc.match(/const RAW_CAP = (\d+);/) || [])[1]);
+  const htmlDecl = 'const htmlToText = h => h\n';
+  const probedSrc = packSrc.replace(htmlDecl, 'const htmlToText = h => (__seen.push(h.length), h)\n');
+  const seen = [];
+  const probed = msgs => new Function('__seen', '$', '$json', '$input', '$now', '$getWorkflowStaticData', 'DateTime', probedSrc)(
+    seen, name => ({ 'Work out the window': items([{ your_name: 'Alex', to: 'you@example.test' }]), 'Recent emails': items(msgs),
+      "Today's calendar": items([]) }[name]), undefined, undefined, fakeNow(mon, 1), () => ({}), FakeDateTime)[0].json;
+  const styleBomb = '<style>'.repeat(300000).slice(0, 2000000);
+  probed([gm(1, '', { html: hostile[0] }), gm(2, '', { html: hostile[1] }), gm(3, '', { html: styleBomb }),
+    gm(4, '', { html: '<html><head>' + style30k + '</head><body>' + hostile[0] + '</body>' })]);
+  check('pack: HTML clean-up never receives more than RAW_CAP characters',
+    packSrc.includes(htmlDecl) && RAW_CAP > 0 && seen.length === 4 && seen.every(n => n <= RAW_CAP), `RAW_CAP=${RAW_CAP} seen=${seen}`);
+  const t0 = Date.now();
+  pack([gm(1, '', { html: styleBomb }), gm(2, '', { html: styleBomb }), gm(3, '', { html: styleBomb })]);
+  const styleMs = Date.now() - t0;
+  check('pack: three 2 MB repeated-<style> bodies finish in under 3 s', styleMs < 3000, styleMs + ' ms');
   const allBad = pack([{ error: { message: 'x' } }]);
   check('pack: when no email could be read the AI is told so', allBad.email_count === 0 && allBad.emails_text === 'No emails could be read.', allBad.emails_text);
   const none = pack([], false);
@@ -206,8 +229,8 @@ function runChecks(wf) {
   check('output: file names, numbers and e.g. stay intact', out.html.includes('report.pdf') && out.html.includes('3.5 at 10.30') && out.html.includes('e.g.'), out.html);
   check('output: overflow notice shown', out.html.includes('More emails arrived than this brief can show'));
   check('output: no overflow notice when not needed', !turn('## Urgent\n- Nothing', false).html.includes('More emails arrived'));
-  check('output: unreadable emails are reported', turn('hi', false, 2).html.includes("2 emails couldn't be read; they'll be in tomorrow's brief.")
-    && turn('hi', false, 1).html.includes("1 email couldn't be read; it'll be in tomorrow's brief."), turn('hi', false, 2).html);
+  check('output: unreadable emails are reported', turn('hi', false, 2).html.includes("2 emails couldn't be read. Check your inbox for them.")
+    && turn('hi', false, 1).html.includes("1 email couldn't be read. Check your inbox for it."), turn('hi', false, 2).html);
   check('output: no unreadable notice when every email was read', !/couldn't be read/.test(turn('hi', false, 0).html));
   check('output: an empty brief is never emailed', throws(() => turn('   ')));
   check('output: the brief goes to the address Work out the window chose', turn('hi').to === 'you@example.test');
@@ -220,9 +243,9 @@ function runChecks(wf) {
   const store = {};
   remember(0, store);
   check('remember: saves where this run ended', store.lastBriefEndMs === 12345);
-  const kept = { lastBriefEndMs: 999 };
-  remember(1, kept);
-  check('remember: an unreadable email keeps the old start point, so the next brief reads it again', kept.lastBriefEndMs === 999, kept.lastBriefEndMs);
+  const moved = { lastBriefEndMs: 999 };
+  remember(1, moved);
+  check('remember: an unreadable email still moves the start point forward', moved.lastBriefEndMs === 12345, moved.lastBriefEndMs);
   check('remember: runs only after the brief is sent', outs('Email me the brief', 0)[0].node === 'Remember this brief');
 
   // ---- Public file hygiene ---------------------------------------------------
