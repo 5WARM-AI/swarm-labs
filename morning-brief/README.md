@@ -1,6 +1,6 @@
 # AI morning brief
 
-Every weekday morning, this n8n workflow reads your Gmail since the last brief (Friday onwards on a Monday) and today's Google Calendar. Claude writes a one-page brief, and n8n emails it to you before you start work.
+Every weekday morning, this n8n workflow reads your Gmail since the last brief it sent and today's Google Calendar. Claude writes a one-page brief, and n8n emails it to you before you start work.
 
 Full guide: https://5warm.ai/guides/ai-morning-brief/
 
@@ -22,16 +22,18 @@ Full guide: https://5warm.ai/guides/ai-morning-brief/
 2. **Connect Google.** Open **Recent emails**, create a Gmail credential and sign in with Google. Pick that same credential in **Email me the brief**. Then open **Today's calendar**, create a Google Calendar credential and sign in again. On n8n Cloud this is one click each. Self-hosted n8n first needs a Google OAuth client; n8n's Google credentials docs walk through it.
 3. **Paste your Claude API key.** Open **Claude**, create an Anthropic credential and paste the key. It's set to Claude Sonnet 5.5 (`claude-sonnet-5-5`).
    **Using OpenRouter instead?** Delete the **Claude** node, add an **OpenRouter Chat Model** and connect it to **Write the brief**. Create an OpenRouter credential with your key, pick a model such as `anthropic/claude-sonnet-5.5`, and set Maximum Number of Tokens to 4000 so the brief has room to finish.
-4. **Add your details.** Open **Your settings** and put in the email address the brief should go to and your first name.
+4. **Add your details.** Open **Your settings** and put in the email address the brief should go to and your first name. The workflow stops with an error while the address is still the `you@example.com` placeholder, so your inbox summary never goes to the wrong place.
 5. **Set the send time.** Open **Every weekday morning** and pick the days and hour. Then open the workflow settings and set your timezone, so "today" and the send time match your day.
 6. **Test it.** Click **Execute workflow** and check your inbox for "Your morning brief".
 7. **Turn it on.** Switch the workflow to active.
 
 ## How it works
 
-`Every weekday morning` → `Your settings` → `Recent emails` (Gmail inbox since the last brief, your own sent mail skipped, up to 20 emails) → `Today's calendar` → `Pack emails and meetings` (Code) → `Write the brief` (Claude) → `Turn brief into email` (Code) → `Email me the brief` (Gmail).
+`Every weekday morning` → `Your settings` → `Work out the window` (Code: checks the address and picks the start time) → `Recent emails` (Gmail inbox since the last brief, your own mail skipped, up to 20 emails) → `Today's calendar` → `Pack emails and meetings` (Code) → `Write the brief` (Claude) → `Turn brief into email` (Code) → `Email me the brief` (Gmail) → `Remember this brief` (Code: saves where this run stopped).
 
-To change what the brief covers, edit the prompt in **Write the brief**. To read more or fewer emails, change the limit or the search in **Recent emails**. The AI sees the first 1,500 characters of each email's new text (quoted history is dropped); change `BODY_CAP` in **Pack emails and meetings** to adjust it. Twenty emails at that length is about 8,000 tokens a day.
+**Which emails it reads.** Each scheduled run starts where the last brief it sent stopped, so a missed day, a failed run or a custom schedule leaves no gap. The first run, and any manual test run, reads the last 3 days on a Monday and the last day otherwise. It never reads more than 7 days back. If more than 20 emails arrived, the brief says so at the top so you can check your inbox for the rest.
+
+To change what the brief covers, edit the prompt in **Write the brief**. To show more or fewer emails, change `SHOW` in **Pack emails and meetings** and set the limit in **Recent emails** to one more than `SHOW` (the extra one is how the workflow spots overflow). To change which emails count, edit the search in **Recent emails**. The AI sees the first 1,500 characters of each email's new text (quoted history is dropped); change `BODY_CAP` in **Pack emails and meetings** to adjust it. Twenty emails at that length is about 8,000 tokens a day.
 
 ## Your data
 
@@ -42,11 +44,15 @@ The workflow reads your email and calendar and sends them to the AI provider you
 Anyone can email you, so the workflow treats every email and invite as untrusted:
 
 - Each one goes to the AI inside `<untrusted_email>` / `<untrusted_event>` tags, and the instructions sit in a separate system message that says text inside the tags must never be obeyed.
-- Links are replaced with `[link: domain]` before the AI sees them, and any link left in the brief is removed before it's emailed.
+- Every link, bare web address and `mailto:` is replaced with `[link: domain[.]com]` before the AI sees them. Before the brief is emailed, any link the AI wrote is removed and any domain name left has its dots broken (`example[.]com`), so mail apps can't turn it into a clickable link.
 - Each draft reply may only use the email it answers, so one email can't pull codes or details out of another.
 - An email that gives the AI instructions, or pushes an urgent payment or login, is listed under **Urgent** as suspicious, with no draft reply.
 
 Still read each draft before you send it.
+
+## Tests
+
+`node tests/run.js` runs the workflow's own Code nodes against test emails: fake closing tags, braces, every kind of link, the Monday and Tuesday windows, the 20-email cap and the address check. It exits with an error if any check fails.
 
 ## Want this done for you?
 
