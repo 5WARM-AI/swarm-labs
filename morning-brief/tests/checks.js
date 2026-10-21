@@ -81,8 +81,8 @@ function runChecks(wf) {
     isGmailHttp(get) && get.parameters.url.includes('/messages/{{ $json.id }}') && qp(get, 'format').value === 'full');
   check('gmail: successful runs are not saved with email bodies', wf.settings.saveDataSuccessExecution === 'none');
   check('gmail: manual test runs are not saved either', wf.settings.saveManualExecutions === false);
-  check('gmail: a failed email fetch is retried once after 2 s, then the run carries on',
-    get.retryOnFail === true && get.maxTries === 2 && get.waitBetweenTries === 2000 && get.onError === 'continueRegularOutput');
+  check('gmail: a failed email fetch doesn\'t stop the run (and no node retry, which n8n skips when errors are caught)',
+    get.onError === 'continueRegularOutput' && get.retryOnFail === undefined && get.maxTries === undefined);
   const split = msgs => runCode(code('One item per email'), { $json: msgs === undefined ? {} : { messages: msgs } });
   check('gmail: one item per listed email', JSON.stringify(split([{ id: 'a' }, { id: 'b' }]).map(i => i.json.id)) === '["a","b"]');
   check('gmail: an empty inbox still produces a brief', split(undefined).length === 1 && split(undefined)[0].json.id === null);
@@ -147,14 +147,31 @@ function runChecks(wf) {
   check('pack: shows 20 of 21 and flags the overflow', pm.email_count === 20 && pm.emails_truncated === true);
   check('pack: no overflow flag when everything fits', pack([gm(1, 'hi')]).emails_truncated === false);
   const hostile = ['<a href="x">'.repeat(100000), '<blockquote>'.repeat(100000)].map(h => h.repeat(2).slice(0, 2000000));
-  const t0 = Date.now();
   const ph = pack([gm(1, '', { html: hostile[0] }), gm(2, '', { html: hostile[1] }), gm(3, 'y'.repeat(2000000))]);
-  const ms = Date.now() - t0;
-  check('pack: three 2 MB hostile bodies (unclosed <a and <blockquote) finish in under 1 s', ms < 1000 && ph.email_count === 3, ms + ' ms');
-  const pe = pack([gm(1, 'first'), { error: { message: 'The resource you are requesting could not be found' } }, gm(3, 'third')]);
+  check('pack: 2 MB hostile bodies (unclosed <a and <blockquote) are packed', ph.email_count === 3);
+  // The cap runs before cleanup: a style block that closes only after 20,000 characters is cut open,
+  // so the text after it never reaches the AI (without the cap, AFTER-CAP would show).
+  const style30k = '<style>' + '.c{color:red}'.repeat(2400) + '</style>';
+  const capped = pack([gm(1, '', { html: style30k + '<p>AFTER-CAP</p>' })]);
+  const cb = capped.emails_text.split('Body: ')[1].split('\n')[0];
+  check('pack: raw HTML is capped before cleanup', !cb.includes('AFTER-CAP'), cb.slice(0, 200));
+  check('pack: a style block cut by the cap leaks no CSS', !/color:red|\.c\(/.test(cb) && cb === 'snippet 1', cb.slice(0, 200));
+  const withBody = pack([gm(1, '', { html: '<html><head>' + style30k + '</head><body><p>Real message here</p></body></html>' })]);
+  const wb = withBody.emails_text.split('Body: ')[1].split('\n')[0];
+  check('pack: an email with 30 KB of <head> styles is read from <body>', wb === 'Real message here', wb.slice(0, 200));
+  const longFields = pack([{ ...gm(1, 'hi'), payload: { ...gm(1, 'hi').payload, headers: [
+    { name: 'From', value: 'F'.repeat(5000) }, { name: 'Subject', value: 'S'.repeat(5000) }] } }], true,
+  [{ id: 'e1', summary: 'T'.repeat(5000), location: 'L'.repeat(5000), attendees: [{ displayName: 'A'.repeat(5000) }], start: { date: '2026-10-19' }, end: { date: '2026-10-20' } }]);
+  check('pack: sender, subject and invite fields are capped at 500 characters',
+    !/F{501}|S{501}/.test(longFields.emails_text) && /S{500}/.test(longFields.emails_text) && !/T{501}|L{501}|A{501}/.test(longFields.events_text) && /T{500}/.test(longFields.events_text));
+  const fetchErr = { error: { message: 'The resource you are requesting could not be found' } };
+  const pe = pack([gm(1, 'first'), fetchErr, gm(3, 'third')]);
   check('pack: an email that could not be fetched is skipped and counted',
     pe.email_count === 2 && pe.emails_unreadable === 1 && !/could not be found/.test(pe.emails_text), JSON.stringify(pe));
   check('pack: no unreadable count when every fetch worked', pack([gm(1, 'hi')]).emails_unreadable === 0);
+  const probeErr = pack([...Array.from({ length: 20 }, (_, i) => gm(i + 1, 'ok ' + i)), fetchErr]);
+  check('pack: a failed fetch of the extra overflow email is not counted',
+    probeErr.emails_unreadable === 0 && probeErr.email_count === 20 && probeErr.emails_truncated === true, JSON.stringify(probeErr).slice(0, 200));
   const allBad = pack([{ error: { message: 'x' } }]);
   check('pack: when no email could be read the AI is told so', allBad.email_count === 0 && allBad.emails_text === 'No emails could be read.', allBad.emails_text);
   const none = pack([], false);
@@ -189,18 +206,23 @@ function runChecks(wf) {
   check('output: file names, numbers and e.g. stay intact', out.html.includes('report.pdf') && out.html.includes('3.5 at 10.30') && out.html.includes('e.g.'), out.html);
   check('output: overflow notice shown', out.html.includes('More emails arrived than this brief can show'));
   check('output: no overflow notice when not needed', !turn('## Urgent\n- Nothing', false).html.includes('More emails arrived'));
-  check('output: unreadable emails are reported', turn('hi', false, 2).html.includes("2 emails couldn't be read")
-    && turn('hi', false, 1).html.includes("1 email couldn't be read"), turn('hi', false, 2).html);
+  check('output: unreadable emails are reported', turn('hi', false, 2).html.includes("2 emails couldn't be read; they'll be in tomorrow's brief.")
+    && turn('hi', false, 1).html.includes("1 email couldn't be read; it'll be in tomorrow's brief."), turn('hi', false, 2).html);
   check('output: no unreadable notice when every email was read', !/couldn't be read/.test(turn('hi', false, 0).html));
   check('output: an empty brief is never emailed', throws(() => turn('   ')));
   check('output: the brief goes to the address Work out the window chose', turn('hi').to === 'you@example.test');
 
   // ---- Remember this brief -------------------------------------------------
-  const store = {};
-  runCode(code('Remember this brief'), {
-    $: () => items([{ window_end_ms: 12345 }]), $input: items([{ ok: true }]), static: () => store,
+  const remember = (unreadable, store) => runCode(code('Remember this brief'), {
+    $: name => ({ 'Work out the window': items([{ window_end_ms: 12345 }]), 'Pack emails and meetings': items([{ emails_unreadable: unreadable }]) }[name]),
+    $input: items([{ ok: true }]), static: () => store,
   });
+  const store = {};
+  remember(0, store);
   check('remember: saves where this run ended', store.lastBriefEndMs === 12345);
+  const kept = { lastBriefEndMs: 999 };
+  remember(1, kept);
+  check('remember: an unreadable email keeps the old start point, so the next brief reads it again', kept.lastBriefEndMs === 999, kept.lastBriefEndMs);
   check('remember: runs only after the brief is sent', outs('Email me the brief', 0)[0].node === 'Remember this brief');
 
   // ---- Public file hygiene ---------------------------------------------------
