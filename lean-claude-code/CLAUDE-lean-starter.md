@@ -4,7 +4,7 @@
      The review step follows "How the Claude Code team does code review" (Anthropic, 15 October 2026). -->
 
 ## Simplicity ladder: walk before you write
-<!-- Adapted from ponytail by Dietrich Gebert, MIT licence, github.com/DietrichGebert/ponytail -->
+<!-- Adapted from ponytail, Copyright (c) 2026 DietrichGebert, MIT licence: github.com/DietrichGebert/ponytail/blob/main/LICENSE -->
 After you understand the problem (read the code the change touches first, and never skimp on reading),
 stop at the first rung that holds before writing any code:
 1. Does this need to exist at all? If not, skip it.
