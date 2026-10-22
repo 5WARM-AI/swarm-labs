@@ -14,7 +14,7 @@ Full guide: https://5warm.ai/guides/lean-claude-code/
 1. Paste both sections of `CLAUDE-lean-starter.md` into the `CLAUDE.md` at your repo root. Create the file if you don't have one.
 2. Copy `REVIEW.md` to your repo root and change the rules to fit your code.
 3. Before you open a pull request, ask Claude Code for a fresh-context subagent review of the diff against both files.
-4. Have the reviewer read both files from your base branch, and list them in CODEOWNERS so a rule change needs an owner's approval.
+4. Have the reviewer read its rules from your base branch, and list `**/CLAUDE.md`, `REVIEW.md` and `.claude/` in CODEOWNERS so a rule change needs an owner's approval.
 
 ## Where the ideas come from
 
