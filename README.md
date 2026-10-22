@@ -1,17 +1,15 @@
-# Swarm free n8n workflows
+# Swarm Labs
 
-Free n8n workflows from [Swarm](https://5warm.ai). Each folder holds one workflow:
+Free workflows, templates and tools from [Swarm](https://5warm.ai), the ones we actually run. Each folder has a `README.md` that says what it does and how to set it up.
 
-- `README.md`: what it does and how to set it up
-- `workflow.json`: import this into n8n
-
-## Workflows
+## What's here
 
 | Folder | What it does | Guide |
 |---|---|---|
-| [morning-brief](morning-brief/) | Every weekday morning, Claude reads your Gmail and Google Calendar and emails you a one-page brief with drafted replies. | [Guide](https://5warm.ai/guides/ai-morning-brief/) |
+| [morning-brief](morning-brief/) | n8n workflow. Every weekday morning, Claude reads your Gmail and Google Calendar and emails you a one-page brief with drafted replies. | [Guide](https://5warm.ai/guides/ai-morning-brief/) |
+| [lean-claude-code](lean-claude-code/) | Two text files for your repo: a simplicity ladder for `CLAUDE.md` and a `REVIEW.md` template, so Claude Code writes less and reviews harder. | [Guide](https://5warm.ai/guides/lean-claude-code/) |
 
-## How to use one
+## How to use an n8n workflow
 
 1. Download the folder's `workflow.json`.
 2. In n8n, open a new workflow and choose **Import from file**.
